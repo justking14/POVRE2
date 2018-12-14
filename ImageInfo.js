@@ -1,31 +1,31 @@
 var imgBlock = new Image()
-imgBlock.src = "brickd1.png"
+imgBlock.src = "img/brickd1.png"
 
 
 var imgDoor = new Image()
-imgDoor.src = "door.png"
+imgDoor.src = "img/door.png"
 
 var imgBlockBack = new Image()
-imgBlockBack.src = "brickd2.png"
+imgBlockBack.src = "img/brickd2.png"
 
 
 
 
 
 var doorBack = new Image()
-doorBack.src = "DoorBack2.png"
+doorBack.src = "img/DoorBack2.png"
 
 var titleImage = new Image()
-titleImage.src = "bgLogo2.png"
+titleImage.src = "img/bgLogo2.png"
 
 
 function changeSRCS(){
-    imgBlock.src = "Block" + currentSize + ".png"
+    imgBlock.src = "img/Block" + currentSize + ".png"
 
-    imgBlockBack.src = "BackBlock" + currentSize + ".png"
+    imgBlockBack.src = "img/BackBlock" + currentSize + ".png"
 
-    imgDoor.src = "Door" + currentSize + ".png"
+    imgDoor.src = "img/Door" + currentSize + ".png"
 
-    doorBack.src = "DoorBack" + currentSize + ".png"
+    doorBack.src = "img/DoorBack" + currentSize + ".png"
 
 }
