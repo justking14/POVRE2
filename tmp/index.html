@@ -1,0 +1,142 @@
+
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Hello web audio</title>
+  </head>
+  <body>
+  </body>
+  <script>
+
+
+var dogBarkingBuffer = null;
+// Fix up prefixing
+window.AudioContext = window.AudioContext || window.webkitAudioContext;
+var context = new AudioContext();
+
+// Create a gain node.
+var gainNode = context.createGain();
+gainNode.gain.value = 0.0
+
+
+function loadDogSound(url) {
+  var request = new XMLHttpRequest();
+  request.open('GET', url, true);
+  request.responseType = 'arraybuffer';
+
+  // Decode asynchronously
+  request.onload = function() {
+    context.decodeAudioData(request.response, function(buffer) {
+      dogBarkingBuffer = buffer;
+    });
+  }
+  request.send();
+}
+function playSound(buffer) {
+  gainNode.gain.value += 0.1;
+
+
+  var source = context.createBufferSource(); // creates a sound source
+  source.buffer = buffer;                    // tell the source which sound to play
+// Connect the source to the gain node.
+source.connect(gainNode);
+// Connect the gain node to the destination.
+gainNode.connect(context.destination);
+
+source.start(0);                           // play the source now
+                                             // note: on older systems, may have to use deprecated noteOn(time);
+}
+
+loadDogSound("jump.mp3")
+document.addEventListener("keydown", function(e){
+    e.preventDefault();
+    playSound(dogBarkingBuffer)
+
+}, false);
+
+  
+
+
+/*
+Mouse=function(){
+  this.onMouseMove=function(event){
+    console.log(event);
+  }
+};
+mouse=new Mouse();
+//source: http://stackoverflow.com/questions/7790725/javascript-track-mouse-position
+(function() {
+    document.onmousemove = handleMouseMove;
+    function handleMouseMove(event) {
+        var dot, eventDoc, doc, body, pageX, pageY;
+
+        event = event || window.event; // IE-ism
+
+        // If pageX/Y aren't available and clientX/Y are,
+        // calculate pageX/Y - logic taken from jQuery.
+        // (This is to support old IE)
+        if (event.pageX == null && event.clientX != null) {
+            eventDoc = (event.target && event.target.ownerDocument) || document;
+            doc = eventDoc.documentElement;
+            body = eventDoc.body;
+
+            event.pageX = event.clientX +
+              (doc && doc.scrollLeft || body && body.scrollLeft || 0) -
+              (doc && doc.clientLeft || body && body.clientLeft || 0);
+            event.pageY = event.clientY +
+              (doc && doc.scrollTop  || body && body.scrollTop  || 0) -
+              (doc && doc.clientTop  || body && body.clientTop  || 0 );
+        }
+
+        // Use event.pageX / event.pageY here
+        mouse.onMouseMove(event);
+    }
+})();
+
+
+    var audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+    var delay= audioCtx.createDelay(5);
+    delay.delayTime.value = 0.09;
+    var delayFeedback = audioCtx.createGain();
+    delayFeedback.gain.value=0.79;
+    var volume = audioCtx.createGain();
+
+    var sinea = audioCtx.createOscillator();
+    sinea.frequency.value = 440;
+    sinea.type = "sine";
+    sinea.start();
+    sinea.connect(volume);
+
+    var sineb = audioCtx.createOscillator();
+    sineb.frequency.value = 523.25;
+    sineb.type = "sine";
+    sineb.start();
+    sineb.connect(volume);
+
+    var sinec = audioCtx.createOscillator();
+    sinec.frequency.value = 698.46;
+    sinec.type = "sine";
+    sinec.start();
+    sinec.connect(volume);
+
+
+    volume.connect(delay);
+    volume.connect(audioCtx.destination);
+    delayFeedback.connect(volume);
+    delay.connect(delayFeedback);
+    delayFeedback.connect(delay);
+    volume.gain.value=0.2;
+    
+    mouse.onMouseMove=function(event){
+        sinea.frequency.value = event.pageX/1000.00*440;
+        sineb.frequency.value = event.pageX/1000.00*523.25;
+        sinec.frequency.value = event.pageX/1000.00*698.46;
+        delayFeedback.gain.value=Math.max(0.7,event.pageY/700.00);
+    };
+
+*/
+
+  </script>
+</html>

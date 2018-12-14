@@ -1,0 +1,782 @@
+
+<!doctype html>
+<head>
+    <title>Be Reborn From The Ashes Of The Fallen King</title>
+    <meta charset="utf-8">
+    <script src='Particles.js'></script>
+    <script src='Buffer2.js'></script>
+    <script src='Functions.js'></script>
+    <script src='ImageInfo.js'></script>
+</head>
+<body>
+    <main>
+        <canvas class="retro" id="game" width="1024" height="768"></canvas>
+    </main>    
+<script>
+
+//change speed to get pitch
+//use oscillators, maybe bg, long tones
+var jumpNormalBuffer = null;
+var jumpReverseBuffer = null;
+
+var fallNormalBuffer = null;
+var fallReverseBuffer = null;
+
+// Fix up prefixing
+window.AudioContext = window.AudioContext || window.webkitAudioContext;
+var context = new AudioContext();
+
+// Create a gain node.
+var gainNode = context.createGain();
+gainNode.gain.value = 0.5
+
+var bassFilter = context.createBiquadFilter();
+bassFilter.type = "lowshelf"; 
+bassFilter.frequency.value = 200;  // switches to 400 in UI
+bassFilter.gain.value = 0;  // you'll need to hook this to UI too
+
+initAudio()
+setInterval(nextNote, 500)
+
+var gravity = 0.04;
+var particles = []
+
+var Stage = {w: 1024, h: 768}
+var canvas=document.getElementById("game");
+var ctx=canvas.getContext("2d");
+
+// KEYBOARD LISTENERS
+document.addEventListener("keydown", function(e){
+    e.preventDefault();
+        
+    titleLeft = true;
+    Keys[e.which] = 1;
+}, false);
+document.addEventListener("keyup", function(e){
+  delete Keys[e.which];
+}, false);
+
+
+var lastFrameTimeMs = 0, maxFPS = 60, delta = 0, timestep = 1000 / 60;
+function mainLoop(timestamp) {
+
+    //if (timestamp < lastFrameTimeMs + (1000 / maxFPS)) {
+      //  requestAnimationFrame(mainLoop);
+        //return;
+    //}
+    delta += timestamp - lastFrameTimeMs;
+    lastFrameTimeMs = timestamp;
+     
+    var numUpdateSteps = 0;
+    while (delta >= timestep) {
+        Player.update(timestep);
+
+        delta -= timestep;
+        if (++numUpdateSteps >= 240) {
+            delta = 0//panic();
+            break;
+        }
+    }
+    draw();
+    updateParticles()
+    requestAnimationFrame(mainLoop);
+}
+
+requestAnimationFrame(mainLoop);
+
+
+
+// Resolve collision
+function resolveCollision(A, B) {
+  // get the vectors to check against
+  var vX = (A.x + (A.w / 2))  - (B.x + (B.w / 2)),
+      vY = (A.y + (A.h / 2))  - (B.y + (B.h / 2)),
+      // Half widths and half heights of the objects
+      ww2 = (A.w / 2) + (B.w / 2),
+      hh2 = (A.h / 2) + (B.h / 2),
+      colDir = "";
+
+  // if the x and y vector are less than the half width or half height, they we must be inside the object, causing a collision
+  if (Math.abs(vX) < ww2 * 1.1 && Math.abs(vY) < hh2 * 1.1) {
+      if(B.type == "door" && endGame === false && Math.abs(vX) < ww2 * 0.5 && Math.abs(vY) < hh2 * 0.5){
+          endGame = true
+          currentLevel+=1
+          for(var i = 0; i < 10; i++){
+            launchParticle()
+
+          }
+
+        setTimeout(reset, 7000);
+
+      }
+    // figures out on which side we are colliding (top, bottom, left, or right)
+    var oX = ww2 - Math.abs(vX),
+        oY = hh2 - Math.abs(vY);
+
+    if (oX >= oY && (B.type === "floor" || B.type === "all")) {
+      if (vY > 0) {
+        colDir = "BOTTOM";
+        A.y += oY;
+      } else {
+        colDir = "TOP";
+        A.y -= oY;
+      }
+    }else if((B.type === "wall" || B.type === "all")){
+      if (vX > 0) {
+        colDir = "LEFT";
+        A.x += oX;
+      } else {
+        colDir = "RIGHT";
+        A.x -= oX;
+      }
+    }
+  }
+  //console.log(colDir, B.type)
+  return colDir;
+}
+var endGame = false
+
+function reset(){
+    console.log("RESET")
+    particles = []
+    endGame = false
+    Player.x = 360
+    Player.y = 60
+
+    enemies = []
+    backEnemies = []
+
+    createEnemies()
+
+    worldDirection = 1
+
+    currentSize = 3
+    oldSize = 3
+    changeSRCS()
+    ctx.globalAlpha = 1.0
+}
+// Game variables
+
+var Keys = {},
+    Player = {
+      x: 360,
+      y: 60,
+      w: 25,
+      h: 35,
+
+      addX: 0,
+      addY: 0,
+
+      color: "blue",
+      velocity: 0.4,
+
+      hasJumped: false,
+      jumpReleased: true,
+
+      changingSize: false,
+      changeReleased: true,
+
+      touchingLeftWall: false,
+      touchingRightWall: false,
+      touchingTopWall: false,
+      touchingBottomWall: false,
+
+      facingLeft: false,
+      facingRight: true,
+
+      flipPressed: false,
+      attemptingToFlip: false,
+      lastPosY: 60,
+      gravity: ((2*35)/(144)),
+      jumpVel: (-2*35)/(12),
+      //G = (-2*h)/(T(h)^2), V0 = (2*h)/T(h)
+
+      update: function(delta){
+          if(endGame === false){
+            gainNode.gain.value = (1 - currentSize/5.0) + 0.2
+            bassFilter.gain.value = ((currentSize * 10) - 30) * -1
+
+            if(this.changingSize === false){
+                this.applyGravity(delta);
+                this.move(delta);
+
+                var hitSomething, colls;
+                if(this.hasJumped === false){
+                    if(this.addX != 0){
+                        for(var i = 0; i < 10; i++){
+                            this.x+=this.addX/10
+                            var result = this.checkCollisionX();
+                            hitSomething = result[0]
+
+                            if(hitSomething === true){
+                                colls = result[1]
+                                break;
+                            }
+                        }
+                    }
+                    if(this.addY != 0){
+                        for(var i = 0; i < 10; i++){
+                            this.y+=this.addY/10
+                            var result = this.checkCollision();
+                            hitSomething = result[0]
+                            if(hitSomething === true){
+                                colls = result[1]
+                                break;
+                            }
+                        }
+                    }
+                }
+                
+                if( (this.addX != 0 || this.addY != 0)){
+                    if(this.hasJumped === true){
+                        for(var i = 0; i < 10; i++){
+                            this.x+=this.addX/10
+                            this.y+=this.addY/10
+                            var result = this.checkCollision();
+                            hitSomething = result[0]
+                            if(hitSomething === true){
+                                colls = result[1]
+                                break;
+                            }
+                        }
+                    }
+            
+                    if(hitSomething){
+                        if(this.attemptingToFlip){
+                            this.y+=15
+
+                            draw()
+                            this.flip()
+                        }else{
+                            this.resolve(hitSomething, colls);
+                        }
+                        this.hasJumped = false
+
+                    }
+                    this.attemptingToFlip = false
+                    this.addX = 0
+                    this.addY = 0
+                }
+                this.lastPosY = this.y
+            }else{
+                this.addX = 0
+                this.addY = 0
+                var result = this.checkCollision();
+                var hitSomething = result[0]
+                if(hitSomething === true){
+                    if(currentSize > oldSize){
+                        oldSize = currentSize
+                        this.changingSize = false
+                        changeSize(false)
+                    }else if(currentSize < oldSize){
+                        oldSize = currentSize
+                        this.changingSize = false
+                        changeSize(true)
+                    }
+
+                }else{
+                    this.changingSize = false
+                }
+            }
+        }
+      },
+      applyGravity: function(delta){
+        if(this.touchingLeftWall || this.touchingRightWall){
+            this.addY+=(this.gravity/2)*delta;
+        }else{
+            this.addY+=(this.gravity)*delta;
+        }
+      },
+
+      flip: function(){
+        worldDirection*=-1
+        this.y-=10
+            var tmpLeft = this.touchingLeftWall
+            var tmpRight = this.touchingRightWall
+        
+            this.touchingLeftWall = false
+            this.touchingRightWall = false
+                
+            for (var i = 0; i < enemies.length; i++) {
+                var distToCenter =  Stage.w/2 -  (enemies[i].x + enemies[i].w)
+                enemies[i].x = (distToCenter + Stage.w/2)
+            }
+            for (var i = 0; i < backEnemies.length; i++) {
+                var distToCenter =  Stage.w/2 -  (backEnemies[i].x + backEnemies[i].w)
+                backEnemies[i].x = (distToCenter + Stage.w/2)
+            }
+
+            var distToCenter =  Stage.w/2 -  (this.x + this.w)
+            this.x = (distToCenter + Stage.w/2)
+      },
+
+      move: function(delta) {
+       
+        if(Keys[32]) { // space
+            if(this.hasJumped === false && this.jumpReleased === true){
+                if(worldDirection === 1){
+                    playSound(jumpNormalBuffer)
+                }else{
+                    playSound(jumpReverseBuffer)
+                }
+
+                this.jumpReleased = false
+                this.addY += this.jumpVel * delta; 
+                if(this.touchingLeftWall){
+                    this.addX+=this.velocity  * 6 * delta;
+                    this.touchingLeftWall = false
+
+                    this.facingLeft = true
+                    this.facingRight = false
+
+                }else if(this.touchingRightWall){
+                    this.addX-=this.velocity * 6 * delta
+                    this.touchingRightWall = false
+
+                    this.facingLeft = false
+                    this.facingRight = true
+                }
+                this.hasJumped = true
+            }    
+        }else{
+            this.jumpReleased = true
+        }
+
+
+        if(Keys[65]) { // A
+          this.addX -= this.velocity * delta;
+          this.touchingRightWall = false
+          this.touchingLeftWall = false
+
+          this.facingLeft = true
+          this.facingRight = false
+
+
+        } 
+        if(Keys[68]) { // D
+          this.addX += this.velocity * delta;
+          this.touchingLeftWall = false
+          this.touchingRightWall = false
+
+            this.facingLeft = false
+            this.facingRight = true
+
+        } 
+
+
+        if(Keys[87]) { // W
+            if(this.changingSize === false && this.attemptingToFlip === false && this.changeReleased === true ){
+                this.changeReleased = false
+                this.y-=10
+                this.changingSize = true
+                //setTimeout(resetVars, 1000);
+                oldSize = currentSize
+                changeSize(false)
+            }
+
+        }
+        if(Keys[83]) { // S
+            if(this.changingSize === false && this.attemptingToFlip === false && this.changeReleased === true){
+                this.changeReleased = false
+                this.y-=10
+                this.changingSize = true
+                oldSize = currentSize
+                changeSize(true)
+            }
+        }
+        if(isEmpty(Keys)){ //if(!Keys[87] && !Keys[83]){
+            this.changeReleased = true
+        }
+
+        if(Keys[69]){
+            if(this.flipPressed === false && this.changingSize === false && this.changeReleased === true){
+                this.changeReleased = false
+                this.attemptingToFlip = true;
+                this.flipPressed = true
+                this.flip();
+                draw()
+
+            }
+        }else{
+            this.flipPressed = false
+        }
+
+        if(Keys[80]){
+            delete Keys[80];
+
+            reset()
+        }
+        
+    },
+
+    checkCollisionX: function(){
+        var hitSomething = false
+        colls = []
+        if(worldDirection === 1){
+            for (var i = 0; i < enemies.length; i++) {
+                if(collision(this, enemies[i]) && Math.abs(enemies[i].y - Player.y) > Player.h) {
+                    this.color = enemies[i].color
+                    hitSomething = true
+                    colls.push(i)
+
+                    if(Math.abs(Player.lastPosY - Player.y) > 1.0){
+                        playSound(fallNormalBuffer)
+                    }
+                }
+
+            }
+        }else{
+            for (var i = 0; i < backEnemies.length; i++) {
+                if(collision(this, backEnemies[i]) && Math.abs(backEnemies[i].y - Player.y) > Player.h) {
+                    this.color = backEnemies[i].color
+                    hitSomething = true
+                    colls.push(i)
+
+                    if(Math.abs(Player.lastPosY - Player.y) > 1.0){
+                        playSound(fallReverseBuffer)
+                    }
+                }
+                
+            }
+        }
+        return [hitSomething, colls]
+    },
+
+
+
+
+    checkCollision: function(){
+        var hitSomething = false
+        colls = []
+        if(worldDirection === 1){
+            for (var i = 0; i < enemies.length; i++) {
+                if(collision(this, enemies[i])) {
+                    this.color = enemies[i].color
+                    hitSomething = true
+                    colls.push(i)
+                    //console.log(Player.lastPosY, Player.y)
+                    if(Math.abs(Player.lastPosY - Player.y) > 1.0){
+                        playSound(fallNormalBuffer)
+                    }
+                }
+
+            }
+        }else{
+            for (var i = 0; i < backEnemies.length; i++) {
+                if(collision(this, backEnemies[i])) {
+                    this.color = backEnemies[i].color
+                    hitSomething = true
+                    colls.push(i)
+                    if(Math.abs(Player.lastPosY - Player.y) > 1.0){
+                        playSound(fallReverseBuffer
+                        )
+                    }
+                }
+                
+            }
+        }
+        return [hitSomething, colls]
+    }
+    
+    
+    
+    ,
+    resolve(hitSomething, colls){
+        if(worldDirection === 1){
+            for (var i = 0; i < colls.length; i++) {
+                var coll = resolveCollision(this, enemies[colls[i]]);
+                if(coll === "LEFT"){
+                    this.touchingLeftWall = true
+                }else if(coll === "RIGHT"){
+                    this.touchingRightWall = true
+                }
+            }
+        }else{
+            for (var i = 0; i < colls.length; i++) {
+                var coll = resolveCollision(this, backEnemies[colls[i]]);
+                if(coll === "LEFT"){
+                    this.touchingLeftWall = true
+                }else if(coll === "RIGHT"){
+                    this.touchingRightWall = true
+                }
+            }
+
+        }
+
+        if(hitSomething === false){
+            this.color = "blue"
+        }
+ 
+        //this.x = Math.min(Math.max(0,this.x), Stage.w-this.w);
+        //this.y = Math.min(Math.max(0,this.y), Stage.h-this.h);
+      }
+}
+ 
+
+var enemies = []
+var backEnemies = [] 
+var currentLevel = 3
+
+
+var playerStartX = 0
+var playerStartY = 0
+
+var distanceToMiddleX = 0
+var distanceToMiddleY = 0
+
+var currentMap
+function createEnemies(){
+
+    currentMap = map1;
+    var currentBackMap = map1Back;
+    if(currentLevel === 2){
+        currentMap = map2;
+        currentBackMap = map2Back
+    }else if(currentLevel === 3){
+        currentMap = map3;
+        currentBackMap = map3Back
+    }else if(currentLevel === 4){
+        currentMap = map4;
+        currentBackMap = map4Back
+    }else if(currentLevel > 4){
+        currentLevel = 1
+    }
+    console.log(currentMap[0].length)
+
+    distanceToMiddleX = (Stage.w - (currentMap[0].length * 44))/2
+    distanceToMiddleY = (Stage.h - (currentMap.length * 44))/2
+
+
+    for (var y = 0; y < currentMap.length; y++) {
+        for (var x = 0; x < currentMap[0].length ; x++) {
+            if(currentMap[y][x] !== 0){
+                var type = "floor"
+                if(currentMap[y][x] === 1){
+                    type = "wall"
+                }else if(currentMap[y][x] === 3){
+                    type = "all"
+                }else if(currentMap[y][x] === 5){
+                    type = "door"
+                }else if(currentMap[y][x] === 9){
+                    var playerStartX = ((x) * 44) + distanceToMiddleX
+                    var playerStartY = ((y) * 44) + distanceToMiddleY
+                    Player.x = playerStartX
+                    Player.y = playerStartY
+                }
+
+
+                var Enemy2 = {
+                    x: ((x) * 44) + distanceToMiddleX,
+                    y: ((y) * 44) + distanceToMiddleY,
+                    w: 44,
+                    h: 44,
+                    color: "white",
+                    type: type,
+                    hidden: false
+                };
+                if(currentMap[y][x] !== 9){
+                    enemies.push(Enemy2)
+                }
+
+            }
+        }
+    }
+    for (var y = 0; y < currentBackMap.length; y++) {
+        for (var x = 0; x < currentBackMap[0].length ; x++) {
+            if(currentBackMap[y][x] !== 0){
+                var type = "floor"
+                if(currentBackMap[y][x] === 1){
+                    type = "wall"
+                }else if(currentBackMap[y][x] === 3){
+                    type = "all"
+                }else if(currentBackMap[y][x] === 5){
+                    type = "door"
+                }
+
+
+
+                var Enemy2 = {
+                    x: ((x) * 44) + distanceToMiddleX,
+                    y: ((y) * 44) + distanceToMiddleY,
+                    w: 44,
+                    h: 44,
+                    color: "white",
+                    type: type,
+                    hidden: false
+                };
+                backEnemies.push(Enemy2)
+
+            }
+        }
+    }
+
+
+}
+createEnemies()
+
+var worldDirection = 1
+
+
+var titleLeft = false
+
+var currentSize = 3
+var oldSize = 3
+changeSRCS()
+ 
+
+function changeSize(increase){
+    if(increase === true){
+        if(currentSize < 5){
+            currentSize+=1
+        }
+    }else{
+        if(currentSize > 1){
+            currentSize-=1
+        }
+    }
+    var adjusted = (currentSize*15)-1
+
+    var newDistanceToMiddleX = (Stage.w - (currentMap[0].length * adjusted))/2
+    var tmpX = Player.x - distanceToMiddleX
+    tmpX = tmpX/((oldSize*15)-1)
+    Player.x = (tmpX * adjusted) + newDistanceToMiddleX
+
+
+     var newDistanceToMiddleY = (Stage.h - (currentMap.length * adjusted))/2
+    var tmpY = Player.y - distanceToMiddleY
+    tmpY = tmpY/((oldSize*15)-1)
+    Player.y = (tmpY * adjusted) + newDistanceToMiddleY
+
+    console.log(currentMap[0].length)
+
+
+
+    for (var i = 0; i < backEnemies.length; i++) {
+
+        backEnemies[i].w = adjusted
+        backEnemies[i].h = adjusted
+
+        var tmpX = backEnemies[i].x - distanceToMiddleX
+        tmpX = tmpX/((oldSize*15)-1)
+        backEnemies[i].x = (tmpX * adjusted) + newDistanceToMiddleX
+
+        var tmpY = backEnemies[i].y - distanceToMiddleY
+        tmpY = tmpY/((oldSize*15)-1)
+        backEnemies[i].y = (tmpY * adjusted) + newDistanceToMiddleY
+
+          //x: ((x) * 44) + 250,
+          //y: ((y) * 44) + 28,
+    }
+    for (var i = 0; i < enemies.length; i++) {
+        enemies[i].w = adjusted
+        enemies[i].h = adjusted
+
+
+        var tmpX = enemies[i].x - distanceToMiddleX
+        tmpX = tmpX/((oldSize*15)-1)
+        enemies[i].x = (tmpX * adjusted) + newDistanceToMiddleX
+
+        var tmpY = enemies[i].y - distanceToMiddleY
+        tmpY = tmpY/((oldSize*15)-1)
+        enemies[i].y = (tmpY * adjusted) + newDistanceToMiddleY
+    }
+    distanceToMiddleX = newDistanceToMiddleX
+    distanceToMiddleY = newDistanceToMiddleY
+    changeSRCS()
+}
+
+var imgPlayerR = new Image()
+imgPlayerR.src = "playerBig1.png"
+var imgPlayerL = new Image()
+imgPlayerL.src = "playerBig1L.png"
+
+
+function drawPlayer(){
+    if(Player.facingRight){
+        ctx.drawImage(imgPlayerR, Player.x, Player.y)
+    }else{
+        ctx.drawImage(imgPlayerL, Player.x, Player.y)
+ 
+    }
+}
+
+function draw(){
+    ctx.clearRect(0, 0, Stage.w, Stage.h);
+    ctx.fillStyle = "rgb(0,191,255)"
+    ctx.fillRect(0, 0, Stage.w, Stage.h);
+
+
+    if(worldDirection === 1){
+        for (var i = 0; i < backEnemies.length; i++) {
+            if(backEnemies[i].type === "door"){
+                ctx.drawImage(doorBack, backEnemies[i].x, backEnemies[i].y )
+
+            }else{
+                ctx.drawImage(imgBlockBack, backEnemies[i].x, backEnemies[i].y)
+            }
+
+        }
+
+        for (var i = 0; i < enemies.length; i++) {
+            if(enemies[i].hidden === false){
+                if(enemies[i].type === "door"){
+                    ctx.drawImage(imgDoor, enemies[i].x, enemies[i].y)
+
+                }else{
+                    ctx.drawImage(imgBlock, enemies[i].x, enemies[i].y)
+                }
+            }
+        }
+        drawPlayer()
+        //canvasDraw( Player );
+        for (var i = 0; i < enemies.length; i++) {
+            if(enemies[i].hidden === false){
+                if(enemies[i].type === "door"){
+                }else{
+                    ctx.drawImage(imgBlock, enemies[i].x, enemies[i].y)
+                }
+            }
+        }
+
+
+    }else{
+        for (var i = 0; i < enemies.length; i++) {
+            if(enemies[i].type === "door"){
+                ctx.drawImage(doorBack, enemies[i].x, enemies[i].y)
+            }else{
+                ctx.drawImage(imgBlockBack, enemies[i].x, enemies[i].y)
+
+            }
+        }
+
+        for (var i = 0; i < backEnemies.length; i++) {
+            if(backEnemies[i].type === "door"){
+                ctx.drawImage(imgDoor, backEnemies[i].x, backEnemies[i].y)
+
+            }else{
+                ctx.drawImage(imgBlock, backEnemies[i].x, backEnemies[i].y)
+            }
+        }
+        drawPlayer()
+        for (var i = 0; i < backEnemies.length; i++) {
+            if(backEnemies[i].type === "door"){
+            }else{
+                ctx.drawImage(imgBlock, backEnemies[i].x, backEnemies[i].y)
+            }
+        }
+
+
+    }
+
+    if(titleLeft === false){
+        ctx.drawImage(titleImage, 0, 0)
+    }
+
+
+}
+
+
+</script>
+
+</body>
+</html>
